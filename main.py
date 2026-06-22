@@ -4,7 +4,7 @@ from models.request_model import ChatRequest
 from services.auth_service import authenticate_user
 from services.rate_limit_service import check_rate_limit
 from services.db_log_service import save_log
-from services.pii_service import redact_pii
+from services.dlp_service import sanitize_prompt
 
 app = FastAPI(
     title="Enterprise LLM Security Gateway",
@@ -23,7 +23,7 @@ def home():
 def chat(request: ChatRequest):
 
     # Step 1: Redact Sensitive Information
-    redacted_prompt = redact_pii(request.prompt)
+    redacted_prompt = sanitize_prompt(request.prompt)
 
     # Step 2: Authentication Check
     if not authenticate_user(request.username):
