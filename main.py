@@ -3,11 +3,12 @@ from fastapi import FastAPI, HTTPException
 from models.request_model import ChatRequest
 
 from services.auth_service import authenticate_user
+from services.rbac_service import check_access
 from services.rate_limit_service import check_rate_limit
-from services.db_log_service import save_log
 from services.dlp_service import sanitize_prompt
 from services.prompt_injection_service import detect_prompt_injection
 from services.sql_injection_service import detect_sql_injection
+from services.db_log_service import save_log
 from services.dashboard_service import get_audit_statistics
 
 app = FastAPI(
@@ -19,7 +20,7 @@ app = FastAPI(
 @app.get("/")
 def home():
     return {
-        "message": "LLM Security Gateway Running"
+        "message": "Enterprise LLM Security Gateway Running"
     }
 
 
@@ -31,13 +32,13 @@ def dashboard():
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    # Step 1: Authentication
+    # Authentication
     if not authenticate_user(request.username):
 
         save_log(
             request.username,
             request.prompt,
-            "BLOCKED"
+            "UNAUTHORIZED"
         )
 
         raise HTTPException(
@@ -45,7 +46,24 @@ def chat(request: ChatRequest):
             detail="Unauthorized User"
         )
 
-    # Step 2: Rate Limiting
+    # RBAC Authorization
+    if not check_access(
+            request.username,
+            request.model
+    ):
+
+        save_log(
+            request.username,
+            request.prompt,
+            "RBAC_BLOCKED"
+        )
+
+        raise HTTPException(
+            status_code=403,
+            detail="Access Denied For Requested Model"
+        )
+
+    # Rate Limiting
     if not check_rate_limit(request.username):
 
         save_log(
@@ -59,10 +77,12 @@ def chat(request: ChatRequest):
             detail="Rate Limit Exceeded"
         )
 
-    # Step 3: DLP Sanitization
-    redacted_prompt = sanitize_prompt(request.prompt)
+    # DLP Sanitization
+    redacted_prompt = sanitize_prompt(
+        request.prompt
+    )
 
-    # Step 4: Prompt Injection Detection
+    # Prompt Injection Detection
     if detect_prompt_injection(request.prompt):
 
         save_log(
@@ -76,7 +96,7 @@ def chat(request: ChatRequest):
             detail="Prompt Injection Attack Detected"
         )
 
-    # Step 5: SQL Injection Detection
+    # SQL Injection Detection
     if detect_sql_injection(request.prompt):
 
         save_log(
@@ -90,17 +110,18 @@ def chat(request: ChatRequest):
             detail="SQL Injection Attempt Detected"
         )
 
-    # Step 6: Audit Logging
+    # Audit Log
     save_log(
         request.username,
         redacted_prompt,
         "ALLOWED"
     )
 
-    # Step 7: Response
+    # Success Response
     return {
         "status": "success",
         "username": request.username,
+        "model": request.model,
         "original_prompt": request.prompt,
         "redacted_prompt": redacted_prompt,
         "message": "Request Processed Successfully"
