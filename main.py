@@ -1,3 +1,4 @@
+from services.prompt_injection_service import detect_prompt_injection
 from fastapi import FastAPI, HTTPException
 
 from models.request_model import ChatRequest
@@ -24,6 +25,14 @@ def chat(request: ChatRequest):
 
     # Step 1: Redact Sensitive Information
     redacted_prompt = sanitize_prompt(request.prompt)
+
+    # Prompt Injection Check
+
+    if detect_prompt_injection(request.prompt):
+        raise HTTPException(
+        status_code=403,
+        detail="Prompt Injection Attack Detected"
+    )
 
     # Step 2: Authentication Check
     if not authenticate_user(request.username):
