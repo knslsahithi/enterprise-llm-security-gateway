@@ -4,11 +4,13 @@ from models.request_model import ChatRequest
 from services.auth_service import authenticate_user
 from services.rate_limit_service import check_rate_limit
 from services.db_log_service import save_log
+from services.pii_service import redact_pii
 
 app = FastAPI(
     title="Enterprise LLM Security Gateway",
     version="1.0"
 )
+
 
 @app.get("/")
 def home():
@@ -16,14 +18,19 @@ def home():
         "message": "LLM Security Gateway Running"
     }
 
+
 @app.post("/chat")
 def chat(request: ChatRequest):
 
+    # Step 1: Redact Sensitive Information
+    redacted_prompt = redact_pii(request.prompt)
+
+    # Step 2: Authentication Check
     if not authenticate_user(request.username):
 
         save_log(
             request.username,
-            request.prompt,
+            redacted_prompt,
             "BLOCKED"
         )
 
@@ -32,11 +39,12 @@ def chat(request: ChatRequest):
             detail="Unauthorized User"
         )
 
+    # Step 3: Rate Limiting Check
     if not check_rate_limit(request.username):
 
         save_log(
             request.username,
-            request.prompt,
+            redacted_prompt,
             "RATE_LIMITED"
         )
 
@@ -45,14 +53,17 @@ def chat(request: ChatRequest):
             detail="Rate Limit Exceeded"
         )
 
+    # Step 4: Save Audit Log
     save_log(
         request.username,
-        request.prompt,
+        redacted_prompt,
         "ALLOWED"
     )
 
+    # Step 5: Return Response
     return {
         "status": "success",
-        "message": "Prompt Accepted",
-        "prompt": request.prompt
+        "username": request.username,
+        "original_prompt": request.prompt,
+        "redacted_prompt": redacted_prompt
     }
